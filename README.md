@@ -15,7 +15,7 @@ Into tcl file
 ```tcl
 source ./packer.tcl
 
-# to import single file
+# import single file
 packer https://raw.githubusercontent.com/mobilemindtec/tcl-hash/master/hash.tcl
 
 # or import packege
