@@ -1,4 +1,4 @@
-#!/bin/tclsh
+#!/usr/bin/env tclsh
 
 package require yaml
 package require http
@@ -10,7 +10,8 @@ package require Tclx
 http::register https 443 [list ::tls::socket -autoservername true]
 
 
-namespace eval packer {   
+namespace eval packer {
+    variable configs   
     set deps "./.tcl"
     #signal trap SIGINT packer::trap_ctrl_c
 }
@@ -58,11 +59,7 @@ proc packer::get_checksum {} {
 #
 # run app entrypoint, restart on change
 #
-proc packer::run {} {
-
-    set configs [packer::read_configs]
-
-    set cmd [dict get $configs app entrypoint]
+proc packer::run {cmd} {
     set chsum1 ""
     set fd ""
     set pid "" 
@@ -71,17 +68,22 @@ proc packer::run {} {
         set chsum2 [packer::get_checksum]
         if {$chsum1 ne $chsum2} {
             packer::clear_term
-            puts "::> File change, restarting app.."
+            puts "<packer ::> File change, restarting app.."
             set chsum1 $chsum2
 
             packer::kill $pid
 
             set pid [exec {*}$cmd &]
-            puts "::> app started!"
+            puts "<packer ::> app started!"
             packer::sleep 1000
         }
     }    
+}
 
+proc packer::upgrade {} {
+	set cmd [curl https://github.com/mobilemindtech/tcl-packer/blob/master/packer.tcl > ./packer]
+	exec {*}$cmd
+	puts "<packer ::> packer upgraded to last version!"
 }
 
 #
@@ -91,7 +93,7 @@ proc packer::kill {pid} {
     if {$pid != ""} {
         puts "kill $pid"
         exec {*}[list kill $pid]
-        puts "::> app stoped!"
+        puts "<packer ::> app stoped!"
         packer::sleep 300
     }    
 }
@@ -101,21 +103,27 @@ proc packer::kill {pid} {
 #
 proc packer::main {argc argv} {
     
-    variable deps
+    variable deps 
+    variable configs
 
-    packer::create_dir
+    create_dir
 
     set param ""
-
-    puts "argc = $argc, argv = $argv"
 
     if {$argc > 0} {
         set param [lindex $argv 0]
     }
+    
+    if {$param == "init"} {
+        init $argc $argv
+        return
+    }
+
+    set configs [read_configs ]
 
     switch $param {
         build {
-            packer::build
+            build
         }
         clean {
             if {[file exists $deps]} {
@@ -123,16 +131,69 @@ proc packer::main {argc argv} {
             }
         }
         run {
-            packer::run
-        }
-        init {
-            packer::init
+            run [dict get $configs app entrypoint]            
         }
         test {
-            packer::test $argc $argv
+            test $argc $argv
+        }
+        upgrade {
+            upgrade
         }
         default {
-            puts "::> usage \[init | build | clean | run | test\]"
+
+            set cfg_cmds [dict get $configs commands]
+            set cmds [list]
+
+            dict for {k v} $cfg_cmds {
+
+                set label $k
+                set cmd $v
+                set forever false
+                set cmd_args {}
+
+                if {[string match *.* $k]} {
+                    set keys [split $k \.] 
+                    if {[lsearch $keys forever] > -1} {
+                        set keys [lrange $keys 0 end-1]
+                    }
+                    set label [join $keys " "]
+                }
+
+                lappend cmds [dict create label $label cmd $cmd forever $forever]
+            }            
+
+            foreach it $cmds {
+
+                set label [dict get $it label] 
+                set cmd [dict get $it cmd] 
+                set forever [dict get $it forever]
+
+                set idx [lsearch $argv --]
+                set user_cmd_label [join $argv " "]
+                set user_cmd_args {}
+
+                if {$idx > -1} {
+                    set user_cmd [lrange $argv 0 $idx-1]
+                    set user_cmd_label [join $user_cmd " "]
+                    set user_cmd_args [lrange $argv $idx+1 end]
+                }
+
+                if {$label == $user_cmd_label} {
+
+                    puts "<packer ::> run \{forever=$forever\}: $label -> $cmd $user_cmd_args"
+
+                    if {$forever} {
+                        run [list {*}$cmd {*}$user_cmd_args]
+                    } else {
+                        exec {*}[list {*}$cmd {*}$user_cmd_args | tee /dev/tty]
+                    }
+                    return
+                }                
+            }
+
+            set labels [lmap it $cmds {dict get $it label}]
+            puts "<packer ::> usage \[init | build | clean | test | [join $labels { | }]\]"
+            puts "<packer ::> use -- to pass cmd args"
             exit 1
         }
     }
@@ -141,39 +202,60 @@ proc packer::main {argc argv} {
 # https://wuhrr.wordpress.com/2011/04/01/tcltest-part-3-include-and-exclude-tests/
 proc packer::test {argc argv} {
 
+    variable configs
+    
     set params ""
 
     if {$argc > 1} {
 
         if {[lindex $argv 1] == "--help"} {
-            puts "::> Test usage:"
-            puts "::> configure -file patternList"
-            puts "::> configure -notfile patternList"
-            puts "::> configure -match patternList"
-            puts "::> configure -skip patternList"
-            puts "::> matchFiles patternList = shortcut for configure -file"
-            puts "::> skipFiles patternList = shortcut for configure -notfile"
-            puts "::> match patternList = shortcut for configure -match"
-            puts "::> skip patternList = shortcut for configure -skip"
-            puts "::> See more at https://wiki.tcl-lang.org/page/tcltest"
+            puts "<packer ::> Test usage:"
+            puts "<packer ::> configure -file patternList"
+            puts "<packer ::> configure -notfile patternList"
+            puts "<packer ::> configure -match patternList"
+            puts "<packer ::> configure -skip patternList"
+            puts "<packer ::> matchFiles patternList = shortcut for configure -file"
+            puts "<packer ::> skipFiles patternList = shortcut for configure -notfile"
+            puts "<packer ::> match patternList = shortcut for configure -match"
+            puts "<packer ::> skip patternList = shortcut for configure -skip"
+            puts "<packer ::> See more at https://wiki.tcl-lang.org/page/tcltest"
             return
         }
 
         set params [lrange $argv 1 end]
     }
 
-    set cmd [list sh -c "cd tests && tclsh all.tcl $params | tee /dev/tty"]
+    
+    set testdir tests
+
+    if {[dict exists $configs app testdir]} {
+        set testdir [dict get $configs app testdir]
+    }
+
+    set cmd [list sh -c "tclsh $testdir/all.tcl -testdir $testdir $params | tee /dev/tty"]
     exec {*}$cmd
 }
 
 #
-# init empty build.yaml
 #
-proc packer::init {} {
-    set build_file "./build.yaml"
+proc packer::init {argc argv} {
+
+    init_empty_project
+
+	#set with_seed_index [lsearch $argv "--seed"]
+	#if {$with_seed_index > -1} {
+	#	init_with_seed $argv $with_seed_index
+	#} else {
+	#	init_empty_project
+	#}
+}
+
+# init empty build.yaml
+proc packer::init_empty_project {} {
+	set build_file "./build.yaml"
 
     if {[file exists $build_file]} {
-        puts "::> build.yaml already exists"
+        puts "<packer ::> build.yaml already exists"
     } else {
 
         set fd [open $build_file w+]
@@ -181,6 +263,7 @@ proc packer::init {} {
         puts $fd {  name: My app name}
         puts $fd {  description: My app description}
         puts $fd {  entrypoint: ./main.tcl}
+        puts $fd {  testdir: ./tests}
         puts $fd {}
         puts $fd {dependencies:}
         puts $fd {    # - https://github.com/user/tcp-app.git}
@@ -201,7 +284,38 @@ proc packer::init {} {
         
         close $fd
         puts "$build_file created!"
+    }	
+}
+
+proc packer::init_with_seed {argv seed_index} {
+    set idx [expr {$seed_index + 1}]
+
+	if {$idx >= [llength $argv]} {
+		return -code error {seed url required}
+	}
+
+	
+	set seed_url [lindex $argv $idx]
+
+	set pname [lindex [split $seed_url /] end]
+	set pname [lindex [split $pname .] 0]
+	set cmd [list git clone $seed_url $pname | tee /dev/tty]
+	catch {exec {*}$cmd}
+
+    if {![file exists $pname/.git]} {
+        return -code error {can't clone seed repository}
     }
+
+	set cmd [list rm -rf ./$pname/.git]
+    exec {*}$cmd
+
+    set cmd [list cp -Rf $pname/* .]
+    exec {*}$cmd
+
+    set cmd [list rm -rf ./$pname]
+    exec {*}$cmd
+
+	debug {project succefull initialized!}
 }
 
 #
@@ -225,8 +339,7 @@ proc packer::read_configs {} {
 proc packer::build {} {
 
     variable deps
-
-    set configs [packer::read_configs ]
+    variable configs
 
     set name [dict get $configs app name]
     set description [dict get $configs app description]
@@ -234,30 +347,30 @@ proc packer::build {} {
     set require_packages [dict get $configs requirements packages]
     set require_cmds [dict get $configs requirements cmds]
 
-    puts "::> check packages requirements"
+    puts "<packer ::> check packages requirements"
     foreach pack $require_packages {        
         if {[catch {package require $pack} err]} {
-            puts "::> \[x\] package $pack not found"
+            puts "<packer ::> \[x\] package $pack not found"
             return
         } else {
-            puts "::> \[ok\] package $pack found"
+            puts "<packer ::> \[ok\] package $pack found"
         }
     }
 
-    puts "::> check cmds requirements"
+    puts "<packer ::> check cmds requirements"
     foreach cmd $require_cmds {        
         if {[catch {exec {*}[list sh -c $cmd]} err]} {
-            puts "::> \[x\] command $cmd not found"
+            puts "<packer ::> \[x\] command $cmd not found"
             return
         } else {
-            puts "::> \[ok\] command $cmd found"
+            puts "<packer ::> \[ok\] command $cmd found"
         }
     }
 
     foreach dep $dependencies {
 
         if {[string match https://* $dep]} {
-            packer::resolve_dependency_uri $dep
+            resolve_dependency_uri $dep
         } else {
             if {[dict exists $configs $dep]} {
                 set dep_info [dict get $configs $dep]
@@ -265,21 +378,25 @@ proc packer::build {} {
                 set cmds [dict get $dep_info cmds]
                 set imports [dict get $dep_info imports]
 
-                set dirname [packer::get_url_dirname $uri]
+                set dirname [get_url_dirname $uri]
                 if {[file exists $deps/$dirname]} {
-                    puts "::> dependency $dep already exists"
+                    puts "<packer ::> dependency $dep already exists"
                 } else {
 
-                    packer::resolve_dependency_uri $uri
+                    resolve_dependency_uri $uri
 
                     foreach cmd $cmds {
-                        puts "::> run $cmd"
-                        set cmd [list sh -c "cd $deps/$dirname && $cmd | tee /dev/tty"]
-                        exec {*}$cmd
+                        puts "<packer ::> run $cmd"
+                        set cmd [list sh -c "cd $deps/$dirname && $cmd"]
+                        set execution [catch {exec {*}$cmd} result]
+                        if { $execution != 0} {
+                            puts $result
+                            return -code error "<packer ::> can't run cmd $cmd"
+                        }
                     }
 
                     foreach import $imports {
-                        packer::add_import $import
+                        add_import $import
                     }
                 }
 
@@ -294,7 +411,7 @@ proc packer::build {} {
     if {[dict exists $configs build cmds]} {
         set cmds [dict get $configs build cmds]
         foreach cmd $cmds {
-            puts "::> run $cmd"
+            puts "<packer ::> run $cmd"
             exec $cmd
         }
     }
@@ -307,7 +424,7 @@ proc packer::resolve_dependency_uri {uri} {
 
 	variable deps
 
-    packer::create_dir
+    create_dir
 
 	if {[string match *.tcl $uri]} {
 		load_file_from_uri $deps $uri
@@ -335,9 +452,9 @@ proc packer::load_lib_from_git {deps uri} {
 	set dirname [packer::get_url_dirname $uri]
 
 	if {[file exists $deps/$dirname]} {
-        puts "::> dependency $dirname already exists"
+        puts "<packer ::> dependency $dirname already exists"
     } else {
-        puts "::> git clone $uri"
+        puts "<packer ::> git clone $uri"
 		set cmd [list git clone $uri $deps/$dirname | tee /dev/tty]
 		if {[catch {exec {*}$cmd} results options]} {
 
@@ -366,9 +483,9 @@ proc packer::load_file_from_uri {deps uri} {
 	set filename [lindex [split $uri /] end]
 	set file_path $deps/$filename
 	if {[file exists $file_path]} {
-        puts "::> dependency $filename already exists"
+        puts "<packer ::> dependency $filename already exists"
     } else {
-		puts "::> downloading file $uri.."
+		puts "<packer ::> downloading file $uri.."
 		set token [http::geturl $uri]
 		set data [::http::data $token]
 		::http::cleanup $token
@@ -401,6 +518,17 @@ proc packer::create_dir {} {
     if {![file exists $deps]} {
         file mkdir $deps
     }    
+}
+
+proc packer::is_dict d {
+    expr {[string is list $d]
+        && !([llength $d] % 2)
+        && ((2 * [llength [dict keys $d]]) == [llength $d])
+    }
+}
+
+proc packer::debug msg {
+    puts "<packer ::> $msg"
 }
 
 packer::main $argc $argv
