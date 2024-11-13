@@ -19,7 +19,7 @@ namespace eval packer {
 
 proc packer::trap_ctrl_c {} {
     puts stdout "Aborting current routine"
-    packer::stop_all
+    stop_all
     exit 0
 }
 
@@ -31,7 +31,7 @@ proc packer::trap_ctrl_c {} {
  }
 
  proc packer::sleep { ms } {
-    set uniq [ packer::uniqkey ]
+    set uniq [ uniqkey ]
     set ::__sleep__tmp__$uniq 0
     after $ms set ::__sleep__tmp__$uniq 1
     vwait ::__sleep__tmp__$uniq
@@ -65,17 +65,17 @@ proc packer::run {cmd} {
     set pid "" 
 
     while {true} {
-        set chsum2 [packer::get_checksum]
+        set chsum2 [get_checksum]
         if {$chsum1 ne $chsum2} {
-            packer::clear_term
+            clear_term
             puts "<packer ::> File change, restarting app.."
             set chsum1 $chsum2
 
-            packer::kill $pid
+            kill $pid
 
             set pid [exec {*}$cmd &]
             puts "<packer ::> app started!"
-            packer::sleep 1000
+            sleep 1000
         }
     }    
 }
@@ -94,109 +94,8 @@ proc packer::kill {pid} {
         puts "kill $pid"
         exec {*}[list kill $pid]
         puts "<packer ::> app stoped!"
-        packer::sleep 300
+        sleep 300
     }    
-}
-
-#
-# process app args
-#
-proc packer::main {argc argv} {
-    
-    variable deps 
-    variable configs
-
-    create_dir
-
-    set param ""
-
-    if {$argc > 0} {
-        set param [lindex $argv 0]
-    }
-    
-    if {$param == "init"} {
-        init $argc $argv
-        return
-    }
-
-    set configs [read_configs ]
-
-    switch $param {
-        build {
-            build
-        }
-        clean {
-            if {[file exists $deps]} {
-                file delete -force -- $deps
-            }
-        }
-        run {
-            run [dict get $configs app entrypoint]            
-        }
-        test {
-            test $argc $argv
-        }
-        upgrade {
-            upgrade
-        }
-        default {
-
-            set cfg_cmds [dict get $configs commands]
-            set cmds [list]
-
-            dict for {k v} $cfg_cmds {
-
-                set label $k
-                set cmd $v
-                set forever false
-                set cmd_args {}
-
-                if {[string match *.* $k]} {
-                    set keys [split $k \.] 
-                    if {[lsearch $keys forever] > -1} {
-                        set keys [lrange $keys 0 end-1]
-                    }
-                    set label [join $keys " "]
-                }
-
-                lappend cmds [dict create label $label cmd $cmd forever $forever]
-            }            
-
-            foreach it $cmds {
-
-                set label [dict get $it label] 
-                set cmd [dict get $it cmd] 
-                set forever [dict get $it forever]
-
-                set idx [lsearch $argv --]
-                set user_cmd_label [join $argv " "]
-                set user_cmd_args {}
-
-                if {$idx > -1} {
-                    set user_cmd [lrange $argv 0 $idx-1]
-                    set user_cmd_label [join $user_cmd " "]
-                    set user_cmd_args [lrange $argv $idx+1 end]
-                }
-
-                if {$label == $user_cmd_label} {
-
-                    puts "<packer ::> run \{forever=$forever\}: $label -> $cmd $user_cmd_args"
-
-                    if {$forever} {
-                        run [list {*}$cmd {*}$user_cmd_args]
-                    } else {
-                        exec {*}[list {*}$cmd {*}$user_cmd_args | tee /dev/tty]
-                    }
-                    return
-                }                
-            }
-
-            set labels [lmap it $cmds {dict get $it label}]
-            puts "<packer ::> usage \[init | build | clean | test | [join $labels { | }]\]"
-            puts "<packer ::> use -- to pass cmd args"
-            exit 1
-        }
-    }
 }
 
 # https://wuhrr.wordpress.com/2011/04/01/tcltest-part-3-include-and-exclude-tests/
@@ -449,7 +348,7 @@ proc packer::load_lib_from_git {deps uri} {
 	global auto_path
 
 
-	set dirname [packer::get_url_dirname $uri]
+	set dirname [get_url_dirname $uri]
 
 	if {[file exists $deps/$dirname]} {
         puts "<packer ::> dependency $dirname already exists"
@@ -468,7 +367,7 @@ proc packer::load_lib_from_git {deps uri} {
             }
 
         }
-        packer::add_import "lappend ::auto_path $deps/$dirname" 
+        add_import "lappend ::auto_path $deps/$dirname" 
 	}
     
     #puts "add autopath $deps/$dirname"
@@ -493,7 +392,7 @@ proc packer::load_file_from_uri {deps uri} {
 		puts $fd $data
 		close $fd
 
-        packer::add_import "source $deps/$filename" 
+        add_import "source $deps/$filename" 
 	}
 	
     #puts "use $deps/$filename"
@@ -529,6 +428,107 @@ proc packer::is_dict d {
 
 proc packer::debug msg {
     puts "<packer ::> $msg"
+}
+
+#
+# process app args
+#
+proc packer::main {argc argv} {
+    
+    variable deps 
+    variable configs
+
+    create_dir
+
+    set param ""
+
+    if {$argc > 0} {
+        set param [lindex $argv 0]
+    }
+    
+    if {$param == "init"} {
+        init $argc $argv
+        return
+    }
+
+    set configs [read_configs ]
+
+    switch $param {
+        build {
+            build
+        }
+        clean {
+            if {[file exists $deps]} {
+                file delete -force -- $deps
+            }
+        }
+        run {
+            run [dict get $configs app entrypoint]            
+        }
+        test {
+            test $argc $argv
+        }
+        upgrade {
+            upgrade
+        }
+        default {
+
+            set cfg_cmds [dict get $configs commands]
+            set cmds [list]
+
+            dict for {k v} $cfg_cmds {
+
+                set label $k
+                set cmd $v
+                set forever false
+                set cmd_args {}
+
+                if {[string match *.* $k]} {
+                    set keys [split $k \.] 
+                    if {[lsearch $keys forever] > -1} {
+                        set keys [lrange $keys 0 end-1]
+                    }
+                    set label [join $keys " "]
+                }
+
+                lappend cmds [dict create label $label cmd $cmd forever $forever]
+            }            
+
+            foreach it $cmds {
+
+                set label [dict get $it label] 
+                set cmd [dict get $it cmd] 
+                set forever [dict get $it forever]
+
+                set idx [lsearch $argv --]
+                set user_cmd_label [join $argv " "]
+                set user_cmd_args {}
+
+                if {$idx > -1} {
+                    set user_cmd [lrange $argv 0 $idx-1]
+                    set user_cmd_label [join $user_cmd " "]
+                    set user_cmd_args [lrange $argv $idx+1 end]
+                }
+
+                if {$label == $user_cmd_label} {
+
+                    puts "<packer ::> run \{forever=$forever\}: $label -> $cmd $user_cmd_args"
+
+                    if {$forever} {
+                        run [list {*}$cmd {*}$user_cmd_args]
+                    } else {
+                        exec {*}[list {*}$cmd {*}$user_cmd_args | tee /dev/tty]
+                    }
+                    return
+                }                
+            }
+
+            set labels [lmap it $cmds {dict get $it label}]
+            puts "<packer ::> usage \[init | build | clean | run | test | upgrade | [join $labels { | }]\]"
+            puts "<packer ::> use -- to pass cmd args"
+            exit 1
+        }
+    }
 }
 
 packer::main $argc $argv
