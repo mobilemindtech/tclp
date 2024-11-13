@@ -81,9 +81,9 @@ proc packer::run {cmd} {
 }
 
 proc packer::upgrade {} {
-	set cmd [curl https://github.com/mobilemindtech/tcl-packer/blob/master/packer.tcl > ./packer]
-	exec {*}$cmd
-	puts "<packer ::> packer upgraded to last version!"
+    set cmd [list curl https://raw.githubusercontent.com/mobilemindtech/tcl-packer/refs/heads/master/packer.tcl -s -o ./packer]
+    exec {*}$cmd
+    debug {packer upgraded to last version!}
 }
 
 #
