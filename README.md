@@ -95,7 +95,7 @@ $ ./packer run
 ```
 
 
-** Default commands:
+### Default commands:
 
 * `build` start build and resolve deps
 * `clean` clean `.tcl` folder
@@ -105,16 +105,17 @@ $ ./packer run
 * `init` init new project
 
 
-** Custom commands
+### Custom commands
 
 
 Examples:
+
 * `trails.migrate: ./app.tcl migrate` run with `./packer trails migrate`
 * `trails.dev.forever: ./app.tcl dev` run with `./packer trails prod`
 * `trails.prod.forever: ./app.tcl prod` run with `./packer trails prod`
 * `trails.test: ./app.tcl test`  run with `./packer.tcl trails test -- match "index_controller"`
 
-** Test
+### Test
 
 Test can use test param using `--`
 
