@@ -143,11 +143,7 @@ proc tclp::test {argc argv} {
     }
 
     
-    set testdir tests
-
-    if {[dict exists $configs app testdir]} {
-        set testdir [dict get $configs app testdir]
-    }
+    set testdir [getdef $configs app testdir tests]
 
     set cmd [list sh -c "tclsh $testdir/all.tcl -testdir $testdir $params | tee /dev/tty"]
     exec {*}$cmd
@@ -241,11 +237,11 @@ proc tclp::build {} {
     variable deps
     variable configs
 
-    set name [dict get $configs app name]
-    set description [dict get $configs app description]
-    set dependencies [dict get $configs dependencies]
-    set require_packages [dict get $configs requirements packages]
-    set require_cmds [dict get $configs requirements cmds]
+    #set name [dict get $configs app name]
+    #set description [dict get $configs app description]
+    set dependencies [get $configs dependencies]
+    set require_packages [get $configs requirements packages]
+    set require_cmds [get $configs requirements cmds]
 
     debug "check packages requirements"
     foreach pack $require_packages {        
@@ -275,8 +271,8 @@ proc tclp::build {} {
             if {[dict exists $configs $dep]} {
                 set dep_info [dict get $configs $dep]
                 set uri [dict get $dep_info uri]
-                set cmds [dict get $dep_info cmds]
-                set imports [dict get $dep_info imports]
+                set cmds [get $dep_info cmds]
+                set imports [get $dep_info imports]
 
                 set dirname [get_url_dirname $uri]
                 if {[file exists $deps/$dirname]} {
@@ -299,21 +295,16 @@ proc tclp::build {} {
                         add_import $import
                     }
                 }
-
-
             } else {
                 error "dependency $dep not found"
             }
         }
-
     }
 
-    if {[dict exists $configs build cmds]} {
-        set cmds [dict get $configs build cmds]
-        foreach cmd $cmds {
-            debug "run $cmd"
-            exec $cmd
-        }
+    set cmds [get $configs build cmds]
+    foreach cmd $cmds {
+        debug "run $cmd"
+        exec $cmd
     }
 }
 
@@ -707,10 +698,10 @@ cleanupTests}
 {  #- http-tcl # import c tcl lib}
 
 {requirements:}
-{  #packages: }
+{  packages: }
 {  #  - mysqltcl # check if package is installed}
 {  #  - tcllib}
-{  #cmds:}
+{  cmds:}
 {  #  - curl --version # check curl is installed}
 {  }
 {build:}

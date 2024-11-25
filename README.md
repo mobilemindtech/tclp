@@ -7,15 +7,15 @@ TCL project manager
 First, install tclp into project folder
 
 ```bash
-$ mkdir myapp && cd myapp
-$ curl https://raw.githubusercontent.com/mobilemindtec/tclp/master/tclp.tcl > tclp
-$ chmod +x ./tclp && ./tclp init
+mkdir myapp && cd myapp
+curl https://raw.githubusercontent.com/mobilemindtech/tclp/master/tclp -o tclp
+chmod +x ./tclp && ./tclp init
 ```
 
 Or global
 
 ```
-$ sudo curl https://raw.githubusercontent.com/mobilemindtec/tclp/master/tclp.tcl > /bin/tclp && sudo chmod +x /bin/tclp
+$ curl https://raw.githubusercontent.com/mobilemindtech/tclp/master/tclp -o /bin/tclp && sudo chmod +x /bin/tclp
 ```
 
 After, create your `build.yaml` into project folder:
@@ -29,8 +29,8 @@ app:
   testdir: ./tests
 
 dependencies:
-  #- https://raw.githubusercontent.com/mobilemindtec/tcl-hash/master/hash.tcl # import file
-  - https://github.com/mobilemindtec/tcl-hash.git # import pure tcl lib
+  #- https://raw.githubusercontent.com/mobilemindtech/tcl-hash/master/hash.tcl # import file
+  - https://github.com/mobilemindtech/tcl-hash.git # import pure tcl lib
   - http-tcl # import c tcl lib
 
 requirements:
