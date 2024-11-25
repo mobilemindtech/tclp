@@ -1,15 +1,21 @@
-# TCL packer
+# The TCL Project Manager
 
-TCL package manager
+TCL project manager
 
 ## Usage
 
-First, install packer into project folder
+First, install tclp into project folder
 
 ```bash
 $ mkdir myapp && cd myapp
-$ curl https://raw.githubusercontent.com/mobilemindtec/tcl-packer/master/packer.tcl > packer
-$ chmod +x ./packer && ./packer init
+$ curl https://raw.githubusercontent.com/mobilemindtec/tclp/master/tclp.tcl > tclp
+$ chmod +x ./tclp && ./tclp init
+```
+
+Or global
+
+```
+$ sudo curl https://raw.githubusercontent.com/mobilemindtec/tclp/master/tclp.tcl > /bin/tclp && sudo chmod +x /bin/tclp
 ```
 
 After, create your `build.yaml` into project folder:
@@ -81,46 +87,45 @@ act::http run
 So, build and run:
 
 ```shell
-./packer build
-./packer run
+./tclp build
+./tclp run
 ```
 
 Or clone test project:
 
 
 ```bash
-$ git clone https://github.com/mobilemindtech/tcl-packer-sample.git myapp
-$ cd myapp && ./packer build
-$ ./packer run
+$ git clone https://github.com/mobilemindtech/tcl-tclp-sample.git myapp
+$ cd myapp && ./tclp build
+$ ./tclp run
 ```
 
 
 ### Default commands:
 
-* `build` start build and resolve deps
-* `clean` clean `.tcl` folder
-* `run` run app `entrypoint`
-* `test` run tests on `testdir`
-* `upgrade` upgrade packer to last version
-* `init` init new project
-
+* `init`: Create build.yaml in current folder
+* `build`: Build project
+* `clean`: Delete .tcl folder
+* `run`: Run project
+* `test`: Run project tests
+* `upgrade`: Upgrade tclp
+*  `new <package or app> <name>`: Create packate or app project
 
 ### Custom commands
 
-
 Examples:
 
-* `trails.migrate: ./app.tcl migrate` run with `./packer trails migrate`
-* `trails.dev.forever: ./app.tcl dev` run with `./packer trails prod`
-* `trails.prod.forever: ./app.tcl prod` run with `./packer trails prod`
-* `trails.test: ./app.tcl test`  run with `./packer.tcl trails test -- match "index_controller"`
+* `trails.migrate: ./app.tcl migrate` run with `./tclp trails migrate`
+* `trails.dev.forever: ./app.tcl dev` run with `./tclp trails prod`
+* `trails.prod.forever: ./app.tcl prod` run with `./tclp trails prod`
+* `trails.test: ./app.tcl test`  run with `./tclp trails test -- match "index_controller"`
 
 ### Test
 
-Test can use test param using `--`
+You can pass test args with `--`
 
 ```
-$ ./packer test --help
+$ ./tclp test --help
 ::> Test usage:
 ::> configure -file patternList
 ::> configure -notfile patternList
@@ -132,6 +137,6 @@ $ ./packer test --help
 ::> skip patternList = shortcut for configure -skip
 ::> See more at https://wiki.tcl-lang.org/page/tcltest
 
-$ ./packer test -- match "match value"
+$ ./tclp test -- match "match value"
 
 ```
