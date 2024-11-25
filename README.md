@@ -8,14 +8,14 @@ First, install tclp into project folder
 
 ```bash
 mkdir myapp && cd myapp
-curl https://raw.githubusercontent.com/mobilemindtech/tclp/master/tclp -o tclp
+curl https://raw.githubusercontent.com/mobilemindtech/tclp/master/tclp -s -o tclp
 chmod +x ./tclp && ./tclp init
 ```
 
 Or global
 
 ```
-$ curl https://raw.githubusercontent.com/mobilemindtech/tclp/master/tclp -o /bin/tclp && sudo chmod +x /bin/tclp
+$ curl https://raw.githubusercontent.com/mobilemindtech/tclp/master/tclp -s -o /bin/tclp && sudo chmod +x /bin/tclp
 ```
 
 After, create your `build.yaml` into project folder:
