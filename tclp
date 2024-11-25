@@ -98,10 +98,17 @@ proc tclp::run {cmd} {
     }    
 }
 
-proc tclp::upgrade {} {    
-    set cmd [list curl https://raw.githubusercontent.com/mobilemindtech/tclp/master/tclp -s -o $::argv0]
-    exec {*}$cmd
-    debug "tclp upgraded to last version!"
+proc tclp::upgrade {} {
+    set uri https://raw.githubusercontent.com/mobilemindtech/tclp/master/tclp
+    set data [file_download $uri]
+    try {
+        set fd [open $::argv0 w+]
+        puts $fd $data
+        close $fd
+        debug "tclp upgraded to last version!"
+    } on error err {
+        debug "upgrade failed: $err"
+    }
 }
 
 #
@@ -376,10 +383,7 @@ proc tclp::load_file_from_uri {deps uri} {
 	if {[file exists $file_path]} {
         debug "dependency $filename already exists"
     } else {
-		debug "downloading file $uri.."
-		set token [http::geturl $uri]
-		set data [::http::data $token]
-		::http::cleanup $token
+		set data [file_download $uri]
 		set fd [open $file_path w+]
 		puts $fd $data
 		close $fd
@@ -389,6 +393,14 @@ proc tclp::load_file_from_uri {deps uri} {
 	
     #puts "use $deps/$filename"
     source $deps/$filename
+}
+
+proc tclp::file_download {uri} {
+	debug "downloading file $uri.."
+    set token [http::geturl $uri]
+    set data [::http::data $token]
+    ::http::cleanup $token
+    return $data
 }
 
 #
