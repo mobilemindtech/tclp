@@ -435,7 +435,7 @@ proc tclp::create_pkg {pkg_name} {
 
     create_file_with $pkg_name $pkg_name/pkgIndex.tcl [dict get $::templates::lib pkg-index] 
     create_file_with $pkg_name $pkg_name/lib.tcl [dict get $::templates::lib lib]
-    create_file_with $pkg_name $pkg_name/tests/all.test [dict get $::templates::lib tests all]
+    create_file_with $pkg_name $pkg_name/tests/all.tcl [dict get $::templates::lib tests all]
     create_file_with $pkg_name $pkg_name/tests/lib.test [dict get $::templates::lib tests lib]
 
     
@@ -455,7 +455,7 @@ proc tclp::create_app {app_name} {
 
     
     create_file_with $app_name $app_name/main.tcl [dict get $::templates::app main]
-    create_file_with $app_name $app_name/tests/all.test [dict get $::templates::lib tests all]
+    create_file_with $app_name $app_name/tests/all.tcl [dict get $::templates::lib tests all]
     create_file_with $app_name $app_name/tests/main.test [dict get $::templates::app test]
 
     

@@ -14,8 +14,8 @@ chmod +x ./tclp && ./tclp init
 
 Or global
 
-```
-$ curl https://raw.githubusercontent.com/mobilemindtech/tclp/master/tclp -s -o /bin/tclp && sudo chmod +x /bin/tclp
+```bash
+sudo curl https://raw.githubusercontent.com/mobilemindtech/tclp/master/tclp -s -o /usr/bin/tclp && sudo chmod +x /usr/bin/tclp
 ```
 
 After, create your `build.yaml` into project folder:
