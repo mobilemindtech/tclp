@@ -99,7 +99,7 @@ proc tclp::run {cmd} {
 }
 
 proc tclp::upgrade {} {    
-    set cmd [list curl https://raw.githubusercontent.com/mobilemindtech/tclp/refs/heads/master/tclp.tcl -s -o $::argv0]
+    set cmd [list curl https://raw.githubusercontent.com/mobilemindtech/tclp/master/tclp -s -o $::argv0]
     exec {*}$cmd
     debug "tclp upgraded to last version!"
 }
