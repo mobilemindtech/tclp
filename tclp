@@ -681,7 +681,8 @@ if {$argc != 0} {
             }
         }
     }
-}}
+}
+runAllTests}
 
             lib {package require tcltest
 
