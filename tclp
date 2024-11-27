@@ -18,11 +18,10 @@ namespace eval tclp {
 
 proc tclp::git {args} {
     debug "exec git $args"
-    catch {eval exec git $args} result options
-    set err [dict get $options -errorcode]
-
-    if {$err ne "NONE"} {                
-	return code -error $err
+    catch {eval exec git $args} result options    
+    if {[dict get $options -errorcode] ne "NONE"} {                
+	   return -code error $result 
+       #[dict get $options -errorinfo]
     }
 }
 
@@ -109,6 +108,12 @@ proc tclp::run {cmd} {
 }
 
 proc tclp::upgrade {} {
+
+    if {![file writable $::argv0]} {
+        debug "insufficient permission to write to $::argv0"
+        exit -1        
+    }
+
     set uri https://raw.githubusercontent.com/mobilemindtech/tclp/master/tclp
     set data [file_download $uri]
     try {
@@ -176,8 +181,8 @@ proc tclp::package_install {pkg_url pkg_name} {
     }
 
     if { [catch {git clone $pkg_url $tmp} err] } {
-	debug "clone error: $err"
-	exit -1
+	   debug "clone error: $err"
+	   exit -1
     }
 
     if {$need_delete} {
