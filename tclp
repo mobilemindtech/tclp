@@ -3,7 +3,7 @@
 package require yaml
 package require http
 package require tls
-package require Tclx
+#package require Tclx
 
 #set cntrlc_flag 1
 
@@ -14,6 +14,16 @@ namespace eval tclp {
     variable configs   
     set deps "./.tcl"
     #signal trap SIGINT tclp::trap_ctrl_c
+}
+
+proc tclp::git {args} {
+    debug "exec git $args"
+    catch {eval exec git $args} result options
+    set err [dict get $options -errorcode]
+
+    if {$err ne "NONE"} {                
+	return code -error $err
+    }
 }
 
 proc tclp::get {d args} {
@@ -111,6 +121,81 @@ proc tclp::upgrade {} {
     }
 }
 
+proc tclp::package_install {pkg_url pkg_name} {
+    # get install path from $::auto_path
+    set lib_path [info library]
+
+    if { ![file writable $lib_path]} {
+	debug "insufficient permission to write to folder $lib_path"
+	exit -1
+    }
+    
+    debug "Ensure you have permission to write at the target location."
+    debug "The lib will be installed in $lib_path. Can you confirm? (y/n)"
+
+    if {[gets stdin] != "y"} {
+	debug "cancelled"
+	exit -1
+    }
+
+    if {$pkg_name == ""} {
+	set pkg_name [lindex [split $pkg_url /] end]
+	set pkg_name [lindex [split $pkg_name .] 0]
+    }
+
+    if {$pkg_name == ""} {
+	debug "unable to determine package name"
+	exit -1
+    }
+
+    debug "install pgk $pkg_name"
+
+    set pkg_path $lib_path/$pkg_name
+    set tmp /tmp/.tclp
+    set need_delete false
+
+    if {[file exists $pkg_path]} {
+	debug "Package $pkg_path already exists. Do you want to replace? (y/n)"
+
+	if {[gets stdin] != "y"} {
+	    debug "cancelled"
+	    exit -1
+	}
+
+	set need_delete true
+    }
+
+    if { ![file exists $tmp] } {
+	file mkdir $tmp
+    }
+
+    set tmp $tmp/$pkg_name
+
+    if { [file exists $tmp] } {
+	file delete -force $tmp
+    }
+
+    if { [catch {git clone $pkg_url $tmp} err] } {
+	debug "clone error: $err"
+	exit -1
+    }
+
+    if {$need_delete} {
+	file delete -force $pkg_path
+    }
+
+    #TODO: check repo have build.yaml or Makefile or ever
+
+    file rename $tmp $pkg_path
+    debug "package installed successfully on $pkg_path"
+}
+
+proc tclp::package_list {} {
+    foreach it [glob -directory [info library] *] {
+	puts $it
+    }
+}
+
 #
 # kill app by PID
 #
@@ -188,32 +273,26 @@ proc tclp::init_empty_project {} {
 proc tclp::init_with_seed {argv seed_index} {
     set idx [expr {$seed_index + 1}]
 
-	if {$idx >= [llength $argv]} {
-		return -code error {seed url required}
-	}
-
-	
-	set seed_url [lindex $argv $idx]
-
-	set pname [lindex [split $seed_url /] end]
-	set pname [lindex [split $pname .] 0]
-	set cmd [list git clone $seed_url $pname | tee /dev/tty]
-	catch {exec {*}$cmd}
-
-    if {![file exists $pname/.git]} {
-        return -code error {can't clone seed repository}
+    if {$idx >= [llength $argv]} {
+	return -code error {seed url required}
     }
 
-	set cmd [list rm -rf ./$pname/.git]
-    exec {*}$cmd
+    set seed_url [lindex $argv $idx]
+    set pname [lindex [split $seed_url /] end]
+    set pname [lindex [split $pname .] 0]
 
-    set cmd [list cp -Rf $pname/* .]
-    exec {*}$cmd
+    if { [catch {git clone $seed_url $pname} err] } {
+	return -code error "clone error: $err"
+    }
 
-    set cmd [list rm -rf ./$pname]
-    exec {*}$cmd
+    foreach f [glob -nocomplain -directory $from *] {
+	if {$f == ".git"} { continue }
+	file copy -force $pname/$f [pwd]/$f
+    }
 
-	debug {project succefull initialized!}
+    file delete -force ./$pname
+
+    debug {project initialized successfully}
 }
 
 #
@@ -320,15 +399,15 @@ proc tclp::build {} {
 #
 proc tclp::resolve_dependency_uri {uri} {
 
-	variable deps
+    variable deps
 
     create_deps_dir
 
-	if {[string match *.tcl $uri]} {
-		load_file_from_uri $deps $uri
-	} elseif {[string match *github.com* $uri]} {
-		load_lib_from_git $deps $uri
-	}
+    if {[string match *.tcl $uri]} {
+	load_file_from_uri $deps $uri
+    } elseif {[string match *github.com* $uri]} {
+	load_lib_from_git $deps $uri
+    }
 }
 
 #
@@ -344,34 +423,22 @@ proc tclp::get_url_dirname {uri} {
 #
 proc tclp::load_lib_from_git {deps uri} {
 
-	global auto_path
+    global auto_path
 
+    set dirname [get_url_dirname $uri]
 
-	set dirname [get_url_dirname $uri]
-
-	if {[file exists $deps/$dirname]} {
+    if {[file exists $deps/$dirname]} {
         debug "dependency $dirname already exists"
     } else {
         debug "git clone $uri"
-		set cmd [list git clone $uri $deps/$dirname | tee /dev/tty]
-		if {[catch {exec {*}$cmd} results options]} {
-
-            set err [dict get $options -errorcode]
-
-            if {$err ne "NONE"} {                
-                if {[file exists $deps/$dirname]} {
-                    file delete -force -- $deps/$dirname
-                }
-                error "git clone error: $err"
-            }
-
-        }
-        add_import "lappend ::auto_path $deps/$dirname" 
+	if {[catch {git clone $uri $deps/$dirname} err]} {
+	    return -code error "clone error: $err"
 	}
-    
+    }
+    add_import "lappend ::auto_path $deps/$dirname" 
+
     #puts "add autopath $deps/$dirname"
     lappend auto_path $deps/$dirname
-
 }
 
 #
@@ -521,7 +588,27 @@ proc tclp::main {argc argv} {
             test $argc $argv
         }
         upgrade {
-            upgrade
+            upgrade            
+        }
+        pkg {
+
+	    foreach {_ cmd uri pgk_name} $argv {
+		switch $cmd {
+		    list {
+			package_list
+		    }
+		    install {
+			if {$uri == ""} {
+			    debug {package url is required}
+			    exit -1
+			}
+			package_install $uri $pgk_name 
+		    }
+		    default {
+			debug "invalid command"
+		    }
+		}
+	    }
         }
         new {
             foreach {_ type name} $argv {
@@ -607,7 +694,10 @@ proc tclp::main {argc argv} {
             puts "  run: Run project"
             puts "  test: Run project tests"
             puts "  upgrade: Upgrade tclp"
-            puts "  new <package or app> <name>: Create packate or app project"
+	    puts "  pkg list: List all packages"
+	    puts "  pkg install <github url> <pkg name>: Install package from github"
+            puts "  new package <name>: Create package"
+	    puts "  new app <name>: Create app"
             if {[llength $labels] > 0} {
                 puts ""
                 puts "Custom commands:"
