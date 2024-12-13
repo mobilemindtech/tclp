@@ -11,8 +11,11 @@ http::register https 443 [list ::tls::socket -autoservername true]
 
 
 namespace eval tclp {
-    variable configs   
-    set deps "./.tcl"
+    variable configs  
+    variable config_file_name
+    variable local_pgks_path 
+    set local_pgks_path ./.tcl
+    set config_file_name tclp.yaml 
     #signal trap SIGINT tclp::trap_ctrl_c
 }
 
@@ -131,69 +134,64 @@ proc tclp::package_install {pkg_url pkg_name} {
     set lib_path [info library]
 
     if { ![file writable $lib_path]} {
-	debug "insufficient permission to write to folder $lib_path"
-	exit -1
+    	debug "insufficient permission to write to folder $lib_path"
+    	#debug "Ensure you have permission to write at the target location."
+    	exit -1
     }
     
-    debug "Ensure you have permission to write at the target location."
-    debug "The lib will be installed in $lib_path. Can you confirm? (y/n)"
+    read_line "The lib will be installed in $lib_path. Can you confirm? (y/n): "
 
     if {[gets stdin] != "y"} {
-	debug "cancelled"
-	exit -1
+    	debug "cancelled"
+    	exit -1
     }
 
     if {$pkg_name == ""} {
-	set pkg_name [lindex [split $pkg_url /] end]
-	set pkg_name [lindex [split $pkg_name .] 0]
+    	set pkg_name [lindex [split $pkg_url /] end]
+    	set pkg_name [lindex [split $pkg_name .] 0]
     }
 
     if {$pkg_name == ""} {
-	debug "unable to determine package name"
-	exit -1
+    	debug "unable to determine package name"
+    	exit -1
     }
 
     debug "install pgk $pkg_name"
 
-    set pkg_path $lib_path/$pkg_name
+    
     set tmp /tmp/.tclp
-    set need_delete false
-
-    if {[file exists $pkg_path]} {
-	debug "Package $pkg_path already exists. Do you want to replace? (y/n)"
-
-	if {[gets stdin] != "y"} {
-	    debug "cancelled"
-	    exit -1
-	}
-
-	set need_delete true
-    }
 
     if { ![file exists $tmp] } {
-	file mkdir $tmp
+	   file mkdir $tmp
     }
 
-    set tmp $tmp/$pkg_name
+    set results [download_pkg_from_git $pkg_url $tmp true]
 
-    if { [file exists $tmp] } {
-	file delete -force $tmp
+    foreach pkg $results {
+
+        set pkg_dir [dict get $pkg pkg_dir]
+        set pkg_name [dict get $pkg pkg_name]
+        set pkg_path $lib_path/$pkg_name
+        
+
+        if {[file exists $pkg_path]} {
+            read_line "Package $pkg_path already exists. Do you want to replace? (y/n): "
+            if {[gets stdin] != "y"} {
+                debug "cancelled"
+                exit -1
+            }
+            
+            file delete -force $pkg_path
+        }
+
+
+        file rename $tmp_pgk $pkg_path
+        debug "\[ok\] pkg $pkg_path installed successfully in $pkg_path"
     }
 
-    if { [catch {git clone $pkg_url $tmp} err] } {
-	   debug "clone error: $err"
-	   exit -1
-    }
-
-    if {$need_delete} {
-	file delete -force $pkg_path
-    }
-
-    #TODO: check repo have build.yaml or Makefile or ever
-
-    file rename $tmp $pkg_path
-    debug "package installed successfully on $pkg_path"
+    
 }
+
 
 proc tclp::package_list {} {
     foreach it [glob -directory [info library] *] {
@@ -262,16 +260,15 @@ proc tclp::init {argc argv} {
 
 # init empty build.yaml
 proc tclp::init_empty_project {} {
-	set build_file "./build.yaml"
-
+    variable config_file_name
     if {[file exists $build_file]} {
-        debug "build.yaml already exists"
+        debug "$config_file_name already exists"
     } else {
 
         set fd [open $build_file w+]
         puts $fd $::templates::build-file
         close $fd
-        puts "$build_file created!"
+        puts "$config_file_name created!"
     }	
 }
 
@@ -304,30 +301,45 @@ proc tclp::init_with_seed {argv seed_index} {
 # read app configs
 #
 proc tclp::read_configs {} {
-    set build_file ./build.yaml
+    variable config_file_name
+    set build_file $config_file_name
     set configs {}
     if {[has_configs]} {        
-        set fd [open $build_file]
-        set configs [yaml::yaml2dict [read $fd]]
-        close $fd  
-        return $configs      
+        return [read_config_file $build_file]      
     }
     return {}
     # error "config $build_file file not found"
 }
 
+proc tclp::read_config_file {fpath} {
+    set fd [open $fpath]
+    set contents [yaml::yaml2dict [read $fd]]
+    close $fd  
+    return $contents      
+}
+
 proc tclp::has_configs {} {
-    file exists ./build.yaml
+    variable config_file_name
+    file exists ./$config_file_name
+}
+
+proc tclp::build {} {
+    variable local_pgks_path
+    variable configs
+
+    set results [build_pkg $configs $local_pgks_path false]
+
+    foreach it $results {
+        register_imports [dict get $it imports]
+    }
 }
 
 #
 # run build
 #
-proc tclp::build {} {
-
-    variable deps
-    variable configs
-
+proc tclp::build_pkg {pkg_configs dest force} {
+    
+    variable local_pgks_path
     #set name [dict get $configs app name]
     #set description [dict get $configs app description]
     set dependencies [get $configs dependencies]
@@ -354,38 +366,64 @@ proc tclp::build {} {
         }
     }
 
+    set results {}
+
     foreach dep $dependencies {
 
         if {[string match https://* $dep]} {
-            resolve_dependency_uri $dep
+            set result [download_pkg_from_git $dep $dest $force]
+            if {$result != ""} {
+                 lappend results $result
+            }  
         } else {
+            # here dependency config
             if {[dict exists $configs $dep]} {
+
                 set dep_info [dict get $configs $dep]
                 set uri [dict get $dep_info uri]
                 set cmds [get $dep_info cmds]
                 set imports [get $dep_info imports]
+                set pkg_name [get_url_pkg_name $uri]
+                set pkg_dir $dist/$pkg_name
+    
 
-                set dirname [get_url_dirname $uri]
-                if {[file exists $deps/$dirname]} {
-                    debug "dependency $dep already exists"
-                } else {
+                if {[file exists $pkg_dir]} {
+                    if {$force} {
+                        debug "delete pkg dir $pkg_dir"
+                        file delete -force $pkg_dir
+                    } else {
+                        debug "pkg $pkg_name already exists"
+                        continue
+                    }    
+                }
 
-                    resolve_dependency_uri $uri
+                set result [download_pkg_from_git $uri $dest $force]
+                set pkg_name [dict get $result pkg_name]
+                set pkg_dir [dict get $result pkg_dir] 
 
-                    foreach cmd $cmds {
-                        debug "run $cmd"
-                        set cmd [list sh -c "cd $deps/$dirname && $cmd"]
-                        set execution [catch {exec {*}$cmd} result]
-                        if { $execution != 0} {
-                            puts $result
-                            return -code error "<tclp ::> can't run cmd $cmd"
-                        }
-                    }
-
-                    foreach import $imports {
-                        add_import $import
+                foreach cmd $cmds {
+                    debug "run $cmd"
+                    set cmd [list sh -c "cd $pkg_dir && $cmd"]
+                    set execution [catch {exec {*}$cmd} result]
+                    if { $execution != 0} {
+                        puts $result
+                        return -code error "can't run cmd $cmd"
                     }
                 }
+
+                if {[llength $imports] == 0} {
+                    lappend imports "lappend ::auto_path \[file normalize $local_pgks_path/$pkg_name\]"
+                }
+
+                lappend results [dict create \
+                                    pkg_dir $pkg_dir \
+                                    pkg_name $pkg_name \
+                                    imports $imports]
+
+                #foreach import $imports {
+                #    add_import $import
+                #}
+            
             } else {
                 error "dependency $dep not found"
             }
@@ -397,28 +435,14 @@ proc tclp::build {} {
         debug "run $cmd"
         exec $cmd
     }
-}
 
-#
-# resove dependency uri
-#
-proc tclp::resolve_dependency_uri {uri} {
-
-    variable deps
-
-    create_deps_dir
-
-    if {[string match *.tcl $uri]} {
-	load_file_from_uri $deps $uri
-    } elseif {[string match *github.com* $uri]} {
-	load_lib_from_git $deps $uri
-    }
+    return $results
 }
 
 #
 # get dir name by url
 #
-proc tclp::get_url_dirname {uri} {
+proc tclp::get_url_pkg_name {uri} {
     set dirname [lindex [split $uri /] end]
     lindex [split $dirname .] end-1    
 }
@@ -426,49 +450,63 @@ proc tclp::get_url_dirname {uri} {
 #
 # run git clone dependency
 #
-proc tclp::load_lib_from_git {deps uri} {
+proc tclp::download_pkg_from_git {uri dest force} {
 
-    global auto_path
+    variable config_file_name
+    variable local_pgks_path
 
-    set dirname [get_url_dirname $uri]
+    set pkg_name [get_url_pkg_name $uri]
+    set pkg_dir $dest/$pkg_name
+    
+    if {[file exists $pkg_dir]} {
+        if {$force} {
+            debug "delete pkg dir $pkg_dir"
+            file delete -force $pkg_dir
+        } else {
+            debug "pkg $pkg_name already exists"
+            return {}
+        }    
+    }
 
-    if {[file exists $deps/$dirname]} {
-        debug "dependency $dirname already exists"
-    } else {
-        debug "git clone $uri"
-	if {[catch {git clone $uri $deps/$dirname} err]} {
+    debug "git clone $uri into $pkg_dir"
+	if {[catch {git clone $uri $pkg_dir} err]} {
 	    return -code error "clone error: $err"
 	}
+
+    set results {}
+
+    if {[file exists $pkg_dir/$config_file_name]} {
+        set pkg_configs [read_config_file $pkg_dir/$config_file_name]
+        set pname [get $pkg_configs name]
+        
+        if {$pname != $pkg_name} {
+            set pkg_name $pname
+            set new_pkg_dir [join [lrange [split $pkg_dir /] 0 end-1] /]
+            set new_pkg_dir $new_pkg_dir/$pkg_name
+            file rename $pkg_dir $new_pkg_dir
+        }
+
+        set results [build_pkg $pkg_configs $dest $force]
     }
-    add_import "lappend ::auto_path $deps/$dirname" 
+
+    lappend results [dict create \
+                        pkg_dir $pkg_dir \
+                        pkg_name $pkg_name \
+                        imports "lappend ::auto_path \[file normalize $local_pgks_path/$pkg_name\]"]
+
+    return $results
+    
+    #add_import "lappend ::auto_path $deps/$dirname" 
 
     #puts "add autopath $deps/$dirname"
-    lappend auto_path $deps/$dirname
+    #lappend auto_path $deps/$dirname
 }
 
 #
 # run download dependency file
 #
-proc tclp::load_file_from_uri {deps uri} {
-	set filename [lindex [split $uri /] end]
-	set file_path $deps/$filename
-	if {[file exists $file_path]} {
-        debug "dependency $filename already exists"
-    } else {
-		set data [file_download $uri]
-		set fd [open $file_path w+]
-		puts $fd $data
-		close $fd
-
-        add_import "source $deps/$filename" 
-	}
-	
-    #puts "use $deps/$filename"
-    source $deps/$filename
-}
-
 proc tclp::file_download {uri} {
-	debug "downloading file $uri.."
+    debug "downloading file $uri.."
     set token [http::geturl $uri]
     set data [::http::data $token]
     ::http::cleanup $token
@@ -478,20 +516,22 @@ proc tclp::file_download {uri} {
 #
 # write import on deps.tcl
 #
-proc tclp::add_import {import} {
-    variable deps
-    set fd [open $deps/deps.tcl a+]
-    puts $fd $import
+proc tclp::register_imports {imports} {
+    variable local_pgks_path
+    set fd [open $local_pgks_path/deps.tcl a+]
+    foreach it $imports {
+        puts $fd $it
+    }
     close $fd    
 }
 
 #
 # create deps dir
 #
-proc tclp::create_deps_dir {} {
-    variable deps
-    if {![file exists $deps]} {
-        file mkdir $deps
+proc tclp::local_pgks_path {} {
+    variable local_pgks_path
+    if {![file exists $local_pgks_path]} {
+        file mkdir $local_pgks_path
     }    
 }
 
@@ -502,12 +542,18 @@ proc tclp::is_dict d {
     }
 }
 
+proc tclp::read_line msg {
+    puts -nonewline "$msg "
+    flush stdout
+}
+
 proc tclp::debug msg {
     puts ":: tclp> $msg"
 }
 
 proc tclp::create_pkg {pkg_name} {
 
+    variable config_file_name
     if {[file exists $pkg_name]} {
         debug "folder $pkg_name already exists"
         exit -1
@@ -524,10 +570,12 @@ proc tclp::create_pkg {pkg_name} {
 
     
     set build_contents [regsub -all -line {entrypoint} [dict get $::templates::build_file] {#entrypoint}]    
-    create_file_with $pkg_name $pkg_name/build.yaml [join $build_contents \n]
+    create_file_with $pkg_name $pkg_name/$config_file_name [join $build_contents \n]
 }
 
 proc tclp::create_app {app_name} {
+
+    variable config_file_name
 
     if {[file exists $app_name]} {
         debug "folder $app_name already exists"
@@ -543,7 +591,7 @@ proc tclp::create_app {app_name} {
     create_file_with $app_name $app_name/tests/main.test [dict get $::templates::app test]
 
     
-    create_file_with $app_name $app_name/build.yaml [join [dict get $::templates::build_file] \n]
+    create_file_with $app_name $app_name/$config_file_name [join [dict get $::templates::build_file] \n]
 }
 
 proc tclp::create_file_with {pkg_name file_name contents} {
@@ -557,7 +605,8 @@ proc tclp::create_file_with {pkg_name file_name contents} {
 #
 proc tclp::main {argc argv} {
     
-    variable deps 
+    variable local_pgks_path
+    variable config_file_name 
     variable configs    
 
     set param ""
@@ -582,8 +631,8 @@ proc tclp::main {argc argv} {
             build
         }
         clean {
-            if {[file exists $deps]} {
-                file delete -force -- $deps
+            if {[file exists $local_pgks_path]} {
+                file delete -force -- $local_pgks_path
             }
         }
         run {
@@ -597,7 +646,7 @@ proc tclp::main {argc argv} {
         }
         pkg {
 
-	    foreach {_ cmd uri pgk_name} $argv {
+	    foreach {_ cmd uri pkg_name} $argv {
 		switch $cmd {
 		    list {
 			package_list
@@ -607,7 +656,7 @@ proc tclp::main {argc argv} {
 			    debug {package url is required}
 			    exit -1
 			}
-			package_install $uri $pgk_name 
+			package_install $uri $pkg_name 
 		    }
 		    default {
 			debug "invalid command"
@@ -693,7 +742,7 @@ proc tclp::main {argc argv} {
             puts "::> The TCL Project Manager"
             puts ""
             puts " Usage:"
-            puts "  init: Create build.yaml in current folder"
+            puts "  init: Create $config_file_name in current folder"
             puts "  build: Build project"
             puts "  clean: Delete .tcl folder"
             puts "  run: Run project"
