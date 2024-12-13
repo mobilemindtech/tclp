@@ -261,14 +261,16 @@ proc tclp::init {argc argv} {
 # init empty build.yaml
 proc tclp::init_empty_project {} {
     variable config_file_name
-    if {[file exists $build_file]} {
+    if {[file exists $config_file_name]} {
         debug "$config_file_name already exists"
     } else {
 
-        set fd [open $build_file w+]
-        puts $fd $::templates::build-file
+        set fd [open $config_file_name w+]
+	foreach it $::templates::build_file {
+	    puts $fd $it
+	}
         close $fd
-        puts "$config_file_name created!"
+        debug "$config_file_name created!"
     }	
 }
 
@@ -308,7 +310,6 @@ proc tclp::read_configs {} {
         return [read_config_file $build_file]      
     }
     return {}
-    # error "config $build_file file not found"
 }
 
 proc tclp::read_config_file {fpath} {
@@ -327,26 +328,26 @@ proc tclp::build {} {
     variable local_pgks_path
     variable configs
 
-    set results [build_pkg $configs $local_pgks_path false]
+    build_pkg $configs $local_pgks_path false
 
-    foreach it $results {
-        register_imports [dict get $it imports]
-    }
+    debug "install done"
 }
 
 #
 # run build
 #
 proc tclp::build_pkg {pkg_configs dest force} {
-    
-    variable local_pgks_path
-    #set name [dict get $configs app name]
-    #set description [dict get $configs app description]
-    set dependencies [get $configs dependencies]
-    set require_packages [get $configs requirements packages]
-    set require_cmds [get $configs requirements cmds]
 
-    debug "check packages requirements"
+    variable local_pgks_path
+    set name [dict get $pkg_configs app name]
+    #set description [dict get $configs app description]
+    set dependencies [get $pkg_configs dependencies]
+    set require_packages [get $pkg_configs requirements packages]
+    set require_cmds [get $pkg_configs requirements cmds]
+
+    debug "Install dependencies for $name"
+    
+    debug "check packages requirements for $name"
     foreach pack $require_packages {        
         if {[catch {package require $pack} err]} {
             debug "\[x\] package $pack not found"
@@ -356,7 +357,7 @@ proc tclp::build_pkg {pkg_configs dest force} {
         }
     }
 
-    debug "check cmds requirements"
+    debug "check cmds requirements for $name"
     foreach cmd $require_cmds {        
         if {[catch {exec {*}[list sh -c $cmd]} err]} {
             debug "\[x\] command $cmd not found"
@@ -377,14 +378,17 @@ proc tclp::build_pkg {pkg_configs dest force} {
             }  
         } else {
             # here dependency config
-            if {[dict exists $configs $dep]} {
+            if {[dict exists $pkg_configs $dep]} {
 
-                set dep_info [dict get $configs $dep]
+                set dep_info [dict get $pkg_configs $dep]
                 set uri [dict get $dep_info uri]
                 set cmds [get $dep_info cmds]
-                set imports [get $dep_info imports]
+		set libdir [get $dep_info libdir]
+		set name [get $dep_info name]
                 set pkg_name [get_url_pkg_name $uri]
-                set pkg_dir $dist/$pkg_name
+		set tm_file [get $dep_info tm file]
+		set tm_dir [get $dep_info tm dir]
+                set pkg_dir $dest/$pkg_name
     
 
                 if {[file exists $pkg_dir]} {
@@ -398,8 +402,14 @@ proc tclp::build_pkg {pkg_configs dest force} {
                 }
 
                 set result [download_pkg_from_git $uri $dest $force]
-                set pkg_name [dict get $result pkg_name]
-                set pkg_dir [dict get $result pkg_dir] 
+		set pkg [dict get $result pkg]
+		set pkg_deps [dict get $result deps]
+                set pkg_name [dict get $pkg pkg_name]
+                set pkg_dir [dict get $pkg pkg_dir]
+
+		foreach pkg_dep $pkg_deps {
+		    lappend results $pkg_dep
+		}
 
                 foreach cmd $cmds {
                     debug "run $cmd"
@@ -411,26 +421,40 @@ proc tclp::build_pkg {pkg_configs dest force} {
                     }
                 }
 
-                if {[llength $imports] == 0} {
-                    lappend imports "lappend ::auto_path \[file normalize $local_pgks_path/$pkg_name\]"
-                }
+		if {$tm_file != ""} {
+		    set tm_dest $dest/pkgs/$tm_dir
+		    if {![file exists $tm_dest]} {
+			file mkdir $tm_dest
+		    }
 
-                lappend results [dict create \
-                                    pkg_dir $pkg_dir \
-                                    pkg_name $pkg_name \
-                                    imports $imports]
+		    file rename $pkg_dir/$tm_file  $tm_dest
+		    file delete -force $pkg_dir
+		    
+		} else {
 
-                #foreach import $imports {
-                #    add_import $import
-                #}
-            
+		    if {$name != ""} {
+			set pkg_name $name
+		    }
+		    
+		    
+		    if {$libdir != ""} {		    
+			file rename  $pkg_dir/$libdir $dest/$pkg_name
+			file delete -force $pkg_dir
+			set pkg_dir $dest/$pkg_name
+		    }
+
+		    lappend results [dict create \
+					 pkg_dir $pkg_dir \
+					 pkg_name $pkg_name]
+		}
+
             } else {
                 error "dependency $dep not found"
             }
         }
     }
 
-    set cmds [get $configs build cmds]
+    set cmds [get $pkg_configs build cmds]
     foreach cmd $cmds {
         debug "run $cmd"
         exec $cmd
@@ -468,16 +492,15 @@ proc tclp::download_pkg_from_git {uri dest force} {
         }    
     }
 
-    debug "git clone $uri into $pkg_dir"
-	if {[catch {git clone $uri $pkg_dir} err]} {
-	    return -code error "clone error: $err"
-	}
-
+    if {[catch {git clone $uri $pkg_dir} err]} {
+	return -code error "clone error: $err"
+    }
+    
     set results {}
 
     if {[file exists $pkg_dir/$config_file_name]} {
         set pkg_configs [read_config_file $pkg_dir/$config_file_name]
-        set pname [get $pkg_configs name]
+        set pname [get $pkg_configs app name]
         
         if {$pname != $pkg_name} {
             set pkg_name $pname
@@ -489,17 +512,11 @@ proc tclp::download_pkg_from_git {uri dest force} {
         set results [build_pkg $pkg_configs $dest $force]
     }
 
-    lappend results [dict create \
-                        pkg_dir $pkg_dir \
-                        pkg_name $pkg_name \
-                        imports "lappend ::auto_path \[file normalize $local_pgks_path/$pkg_name\]"]
-
-    return $results
-    
-    #add_import "lappend ::auto_path $deps/$dirname" 
-
-    #puts "add autopath $deps/$dirname"
-    #lappend auto_path $deps/$dirname
+    dict create \
+	pkg [dict create \
+		 pkg_dir $pkg_dir \
+		 pkg_name $pkg_name]
+	deps $results
 }
 
 #
@@ -516,23 +533,26 @@ proc tclp::file_download {uri} {
 #
 # write import on deps.tcl
 #
-proc tclp::register_imports {imports} {
+proc tclp::create_deps_file {} {
     variable local_pgks_path
-    set fd [open $local_pgks_path/deps.tcl a+]
-    foreach it $imports {
-        puts $fd $it
+    if {![file exists deps.tcl]} {
+	set fd [open deps.tcl w]
+	puts $fd "# generated by tclp"
+	puts $fd "::tcl::tm::path add \[file normalize $local_pgks_path/pkgs\]"
+	puts $fd "lappend ::auto_path \[file normalize $local_pgks_path\]"
+	close $fd    
     }
-    close $fd    
 }
 
 #
 # create deps dir
 #
-proc tclp::local_pgks_path {} {
+proc tclp::create_local_pgks_path {} {
     variable local_pgks_path
     if {![file exists $local_pgks_path]} {
-        file mkdir $local_pgks_path
-    }    
+        file mkdir $local_pgks_path/pkgs
+    }
+    create_deps_file
 }
 
 proc tclp::is_dict d {
@@ -619,14 +639,14 @@ proc tclp::main {argc argv} {
     set configs [read_configs]
 
     if {[has_configs]} {
-        create_deps_dir
+	create_local_pgks_path
     }
 
     switch $param {
         init {
             init $argc $argv
         }
-        build {
+        install {
             set configs [read_configs]
             build
         }
@@ -743,7 +763,7 @@ proc tclp::main {argc argv} {
             puts ""
             puts " Usage:"
             puts "  init: Create $config_file_name in current folder"
-            puts "  build: Build project"
+            puts "  install: Install project dependencies"
             puts "  clean: Delete .tcl folder"
             puts "  run: Run project"
             puts "  test: Run project tests"
@@ -850,8 +870,9 @@ cleanupTests}
 {  testdir: ./tests}
 
 {dependencies:}
-{  #- https://raw.githubusercontent.com/mobilemindtec/tcl-hash/master/hash.tcl # import file}
-{  #- https://github.com/mobilemindtec/tcl-hash.git # import pure tcl lib}
+{  #- https://github.com/mobilemindtech/tcl-request.git}
+{  #- https://github.com/mobilemindtech/tcl-sjson.git}
+{  #- https://github.com/mobilemindtech/tcl-tools.git}
 {  #- http-tcl # import c tcl lib}
 
 {requirements:}
