@@ -117,8 +117,8 @@ proc tclp::upgrade {} {
         exit -1        
     }
 
-    set uri https://raw.githubusercontent.com/mobilemindtech/tclp/master/tclp
-    set data [file_download $uri]
+    set url https://raw.githubusercontent.com/mobilemindtech/tclp/master/tclp
+    set data [file_download $url]
     try {
         set fd [open $::argv0 w+]
         puts $fd $data
@@ -146,7 +146,8 @@ proc tclp::package_install {pkg_url pkg_name} {
     	exit -1
     }
     
-    read_line "The lib will be installed in $lib_path and tm files in $tm_path. Can you confirm? (y/n): "
+    debug "The lib will be installed in $lib_path and tm files in $tm_path"
+    read_line "Can you confirm? (y/n): "
 
     if {[gets stdin] != "y"} {
     	debug "cancelled"
@@ -174,12 +175,14 @@ proc tclp::package_install {pkg_url pkg_name} {
 
     file mkdir $tmp/pkgs
 
-    set result [download_pkg_from_git $pkg_url $tmp true]
+    set result [download_pkg_from_git $pkg_url $tmp]
     set deps [dict get $result deps]
     set pkg [dict get $result pkg]
     set deps [list $pkg {*}$deps]
     foreach pkg $deps {
 
+	if {$pkg == ""} { continue }
+	
         set pkg_name [dict get $pkg pkg_name]
         set pkg_dir [get $pkg pkg_dir]
 	set pkg_tm_file_name [get $pkg tm_file_name]
@@ -194,7 +197,7 @@ proc tclp::package_install {pkg_url pkg_name} {
 		return -code error "tm path not found"
 	    }
 
-	    set pkg_tm_dest $tm_path/$pkg_tm_dpkg_ir
+	    set pkg_tm_dest $tm_path/$pkg_tm_dir
 	    
 	    if {[file exists $pkg_tm_dest]} {
 		file delete -force $pkg_tm_dest
@@ -203,21 +206,9 @@ proc tclp::package_install {pkg_url pkg_name} {
 	    file mkdir $pkg_tm_dest
 	    file rename $pkg_tm_file_path  $pkg_tm_dest/$pkg_tm_file_name
 
-	    debug "\[ok\] pkg $$pkg_tm_file_name installed successfully in $pkg_tm_dest/$pkg_tm_file_name"
+	    debug "\[ok\] pkg $pkg_tm_file_name installed successfully in $pkg_tm_dest/$pkg_tm_file_name"
 	    
 	} else {
-	    
-	    #if {[file exists $pkg_path]} {
-	    #	read_line "Package $pkg_path already exists. Do you want to replace? (y/n): "
-	    #	if {[gets stdin] != "y"} {
-	    #	    debug "cancelled"
-	    #	    exit -1
-	    #	}
-	    #	
-	    #	file delete -force $pkg_path
-	    #}
-
-
 	    file rename $pkg_dir $pkg_path
 	    debug "\[ok\] pkg $pkg_dir installed successfully in $pkg_path"
 	}
@@ -355,11 +346,12 @@ proc tclp::has_configs {} {
     file exists ./$config_file_name
 }
 
+# run on install cmd option
 proc tclp::build {} {
     variable local_pgks_path
     variable configs
 
-    build_pkg $configs $local_pgks_path false
+    build_pkg $configs "" $local_pgks_path
 
     debug "install done"
 }
@@ -367,7 +359,7 @@ proc tclp::build {} {
 #
 # run build
 #
-proc tclp::build_pkg {pkg_configs dest force} {
+proc tclp::build_pkg {pkg_configs pkg_dir dest} {
 
     variable local_pgks_path
     set name [dict get $pkg_configs app name]
@@ -402,101 +394,179 @@ proc tclp::build_pkg {pkg_configs dest force} {
     foreach dep $dependencies {
 
         if {[string match https://* $dep]} {
-            set result [download_pkg_from_git $dep $dest $force]
+            set result [download_pkg_from_git $dep $dest]
+
+	    if {$result == ""} { continue }
+	    
 	    set deps [dict get $result deps]
 	    set pkg [dict get $result pkg]
-	    lappend results $pkg
-	    foreach pkg_dep $deps {
-		lappend results $pkg_dep
-	    }
+	    set results [list {*}$results $pkg {*}$deps]
         } else {
             # here dependency config
             if {[dict exists $pkg_configs $dep]} {
 
-                set dep_info [dict get $pkg_configs $dep]
-                set uri [dict get $dep_info uri]
-                set cmds [get $dep_info cmds]
-		set libdir [get $dep_info libdir]
-		set name [get $dep_info name]
-                set pkg_name [get_url_pkg_name $uri]
-		set tm_file [get $dep_info tm file]
-		set tm_dir [get $dep_info tm dir]
-                set pkg_dir $dest/$pkg_name
-    
-
-                if {[file exists $pkg_dir]} {
-                    if {$force} {
-                        debug "delete pkg dir $pkg_dir"
-                        file delete -force $pkg_dir
-                    } else {
-                        debug "pkg $pkg_name already exists"
-                        continue
-                    }    
-                }
-
-                set result [download_pkg_from_git $uri $dest $force]
-		set pkg [dict get $result pkg]
-		set pkg_deps [dict get $result deps]
-                set pkg_name [dict get $pkg pkg_name]
-                set pkg_dir [dict get $pkg pkg_dir]
-
-		foreach pkg_dep $pkg_deps {
-		    lappend results $pkg_dep
-		}
-
-                foreach cmd $cmds{ 
-                    debug "run $cmd"
-                    set cmd [list sh -c "cd $pkg_dir && $cmd"]
-                    set execution [catch {exec {*}$cmd} result]
-                    if { $execution != 0} {
-                        puts $result
-                        return -code error "can't run cmd $cmd"
-                    }
-                }
-
-		if {$tm_file != ""} {
-		    set tm_dest $dest/pkgs/$tm_dir
-		    if {![file exists $tm_dest]} {
-			file mkdir $tm_dest
-		    }
-
-		    file rename $pkg_dir/$tm_file  $tm_dest
-		    file delete -force $pkg_dir
-
-		    lappend results [dict create \
-					 pkg_name $pkg_name \
-					 tm_dir $tm_dir \
-					 tm_file_path $tm_dest \
-					 tm_file_name [lindex [split $tm_file /] end]]
-		    
-		} else {
-
-		    if {$name != ""} {
-			set pkg_name $name
-		    }
-		    
-		    
-		    if {$libdir != ""} {		    
-			file rename  $pkg_dir/$libdir $dest/$pkg_name
-			file delete -force $pkg_dir
-			set pkg_dir $dest/$pkg_name
-		    }
-
-		    lappend results [dict create \
-					 pkg_dir $pkg_dir \
-					 pkg_name $pkg_name]
-		}
-
+		set results [list {*}$results \
+				 {*}[build_pkg_dep $pkg_configs $dep $dest]]
+		
             } else {
-                error "dependency $dep not found"
+                return -code error "dependency build $dep not found"
             }
         }
     }
 
-    set cmds [get $pkg_configs build cmds]
-    foreach cmd $cmds {
-        debug "run $cmd"
-        exec $cmd
+    set res [run_pkg_cmds $name  $pkg_configs $pkg_dir $dest]
+    list {*}$results {*}$res
+}
+
+# process build block from configs
+# @param pkg_name
+# @param pkg_configs
+# @param pkg_dir run command into this dir
+# @param dest
+proc tclp::run_pkg_cmds {pkg_name pkg_configs pkg_dir dest} {
+    set results {}
+    set build_info [get $pkg_configs build]
+    set cmds [get $build_info cmds]
+    set libdir [get $build_info libdir]
+    set tm_file [get $build_info tm file]
+    set tm_dir [get $build_info tm dir]
+    set url [get $build_info url]
+
+    if {$url != ""} {
+	# build wrap here
+
+	set result [download_pkg_from_git $url $dest]
+
+	if {$result == ""} {
+	    return ""
+	}
+	
+	set pkg [dict get $result pkg]
+	#set pkg_deps [dict get $result deps]
+	#set pkg_name [dict get $pkg pkg_name]
+	set pkg_dir [dict get $pkg pkg_dir]
+    }
+
+    if {[llength $cmds] > 0} {
+
+	foreach cmd $cmds { 
+	    debug "run $cmd"
+	    set cmd [list sh -c "cd $pkg_dir && $cmd"]
+	    set execution [catch {exec {*}$cmd} result]
+	    if { $execution != 0} {
+		puts $result
+		return -code error "can't run cmd $cmd"
+	    }
+	}
+
+	if {$libdir != ""} {
+	    lappend results [dict create \
+				 pkg_dir $libdir \
+				 pkg_name $pkg_name]
+	    set pgk_dest $dest/$pgk_name
+	    if {[file exists $pkg_dest]} {
+		file delete -force $pkg_dest
+	    }
+	    file rename $pkg_dir $pkg_dest
+	} elseif {$tm_file != ""} {
+	    set tm_name [lindex [split $tm_file /] end]
+	    set tm_dest $dest/pkgs/$tm_dir
+	    if {[file exists $tm_dest]} {
+		file delete -force $tm_dest
+	    }
+	    file mkdir $tm_dest
+	    file rename $pkg_dir/$tm_file $tm_dest/$tm_name
+	    file delete -force $pkg_dir
+	    lappend results [dict create \
+				 pkg_name $pkg_name \
+				 tm_dir $tm_dir \
+				 tm_file_path $tm_dest/$tm_name \
+				 tm_file_name $tm_name]
+	} else {
+	    return -code error "build should be set libdir or tm.file"
+	}
+    }
+
+    return $results
+}
+
+# build package dependency when dep has build information
+# @param pkg_configs yaml config 
+# @param dep dependency name
+# @param dest destination folder build
+# @param force true to delete if exists or else skip build
+proc tclp::build_pkg_dep {pkg_configs dep dest} {
+    set results {}
+    set dep_info [dict get $pkg_configs $dep]
+    set build_info [get $dep_info build]
+    set url [dict get $dep_info url]
+    set cmds [get $build_info cmds]
+    set name [get $build_info name]
+    set pkg_name [get_url_pkg_name $url]
+    set libdir [get $build_info libdir]
+    set tm_file [get $build_info tm file]
+    set tm_dir [get $build_info tm dir]
+    set pkg_dir $dest/$pkg_name
+    
+    if {[file exists $pkg_dir]} {
+	debug "pkg $pkg_name already exists"
+	return ""
+    }
+
+    set result [download_pkg_from_git $url $dest]
+
+    if {$result == ""} {
+	return ""
+    }
+    
+    set pkg [dict get $result pkg]
+    set pkg_deps [dict get $result deps]
+    set pkg_name [dict get $pkg pkg_name]
+    set pkg_dir [dict get $pkg pkg_dir]
+
+    foreach pkg_dep $pkg_deps {
+	lappend results $pkg_dep
+    }
+
+    foreach cmd $cmds { 
+	debug "run $cmd"
+	set cmd [list sh -c "cd $pkg_dir && $cmd"]
+	set execution [catch {exec {*}$cmd} result]
+	if { $execution != 0} {
+	    puts $result
+	    return -code error "can't run cmd $cmd"
+	}
+    }
+
+    if {$tm_file != ""} {
+	set tm_dest $dest/pkgs/$tm_dir
+	if {![file exists $tm_dest]} {
+	    file mkdir $tm_dest
+	}
+
+	file rename $pkg_dir/$tm_file  $tm_dest
+	file delete -force $pkg_dir
+
+	lappend results [dict create \
+			     pkg_name $pkg_name \
+			     tm_dir $tm_dir \
+			     tm_file_path $tm_dest \
+			     tm_file_name [lindex [split $tm_file /] end]]
+    } else {
+
+	if {$name != ""} {
+	    set pkg_name $name
+	}
+	
+	if {$libdir != ""} {		    
+	    file rename  $pkg_dir/$libdir $dest/$pkg_name
+	    file delete -force $pkg_dir
+	    set pkg_dir $dest/$pkg_name
+	}
+
+	lappend results [dict create \
+			     pkg_dir $pkg_dir \
+			     pkg_name $pkg_name]
     }
 
     return $results
@@ -505,66 +575,81 @@ proc tclp::build_pkg {pkg_configs dest force} {
 #
 # get dir name by url
 #
-proc tclp::get_url_pkg_name {uri} {
-    set dirname [lindex [split $uri /] end]
+proc tclp::get_url_pkg_name {url} {
+    set dirname [lindex [split $url /] end]
     lindex [split $dirname .] end-1    
 }
 
 #
-# run git clone dependency
+# run git clone dependency and run build if has tclp.yaml
 #
-proc tclp::download_pkg_from_git {uri dest force} {
+proc tclp::download_pkg_from_git {url dest} {
 
     variable config_file_name
     variable local_pgks_path
 
-    set pkg_name [get_url_pkg_name $uri]
+    # url folder name
+    set pkg_name [get_url_pkg_name $url]
     set pkg_dir $dest/$pkg_name
     
     if {[file exists $pkg_dir]} {
-        if {$force} {
-            debug "delete pkg dir $pkg_dir"
-            file delete -force $pkg_dir
-        } else {
-            debug "pkg $pkg_name already exists"
-            return {}
-        }    
+	debug "pkg $pkg_name already downloaded"
+	return {}
     }
 
-    if {[catch {git clone $uri $pkg_dir} err]} {
+    if {[catch {git clone $url $pkg_dir} err]} {
 	return -code error "clone error: $err"
     }
     
     set results {}
-
+    set create_pkg true
+    
     if {[file exists $pkg_dir/$config_file_name]} {
         set pkg_configs [read_config_file $pkg_dir/$config_file_name]
         set pname [get $pkg_configs app name]
-        
+
+	# change folder name if package name != url folder name
         if {$pname != $pkg_name} {
             set pkg_name $pname
             set new_pkg_dir [join [lrange [split $pkg_dir /] 0 end-1] /]
             set new_pkg_dir $new_pkg_dir/$pkg_name
+
+	    if {[file exists $new_pkg_dir]} {
+		debug "pkg $pkg_name already downloaded"
+		file delete -force $pkg_dir
+		return ""
+	    }
+	    
             file rename $pkg_dir $new_pkg_dir
 	    set pkg_dir $new_pkg_dir
         }
 
-        set results [build_pkg $pkg_configs $dest $force]
+	if {[llength [get $pkg_configs build cmds]] > 0} {
+	    # not create package, because the package info
+	    # is created on build_pkg
+	    set create_pkg false
+	}
+	
+        set results [build_pkg $pkg_configs $new_pkg_dir $dest]
     }
 
-    dict create \
-	pkg [dict create \
-		 pkg_dir $pkg_dir \
-		 pkg_name $pkg_name] \
-	deps $results
+    if {$create_pkg} {
+	set pkg [dict create \
+		     pkg_dir $pkg_dir \
+		     pkg_name $pkg_name]
+    } else {
+	set pkg ""
+    }
+	
+    dict create pkg $pkg deps $results
 }
 
 #
 # run download dependency file
 #
-proc tclp::file_download {uri} {
-    debug "downloading file $uri.."
-    set token [http::geturl $uri]
+proc tclp::file_download {url} {
+    debug "downloading file $url.."
+    set token [http::geturl $url]
     set data [::http::data $token]
     ::http::cleanup $token
     return $data
@@ -700,6 +785,7 @@ proc tclp::main {argc argv} {
 	    if {[file exists deps.tcl]} {
 		file delete deps.tcl
 	    }
+	    debug "cleaned!"
         }
         run {
             run [dict get $configs app entrypoint]            
@@ -712,17 +798,17 @@ proc tclp::main {argc argv} {
         }
         pkg {
 
-	    foreach {_ cmd uri pkg_name} $argv {
+	    foreach {_ cmd url pkg_name} $argv {
 		switch $cmd {
 		    list {
 			package_list
 		    }
 		    install {
-			if {$uri == ""} {
+			if {$url == ""} {
 			    debug {package url is required}
 			    exit -1
 			}
-			package_install $uri $pkg_name 
+			package_install $url $pkg_name 
 		    }
 		    default {
 			debug "invalid command"
@@ -933,7 +1019,7 @@ cleanupTests}
 
 {# TCL c lib install}
 {#http-tcl:}
-{#  uri: https://github.com/anticrisis/tcl-http.git}
+{#  url: https://github.com/anticrisis/tcl-http.git}
 {#  cmds:}
 {#    - ./act vcpkg setup}
 {#    - ./act build manifest.txt}
