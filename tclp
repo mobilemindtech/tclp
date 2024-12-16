@@ -891,7 +891,7 @@ proc tclp::main {argc argv} {
             }
 
             set labels [lmap it $cmds {dict get $it label}]
-            puts "::> The TCL Project Manager"
+            puts "::> The TCL Package Manager"
             puts ""
             puts " Usage:"
             puts "  init: Create $config_file_name in current folder"
