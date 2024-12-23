@@ -717,7 +717,7 @@ proc tclp::create_pkg {pkg_name} {
     create_file_with $pkg_name $pkg_name/tests/lib.test [dict get $::templates::lib tests lib]
 
     
-    set build_contents [regsub -all -line {entrypoint} [dict get $::templates::build_file] {#entrypoint}]    
+    set build_contents [regsub -all -line {entrypoint} $::templates::build_file {#entrypoint}]    
     create_file_with $pkg_name $pkg_name/$config_file_name [join $build_contents \n]
 }
 
