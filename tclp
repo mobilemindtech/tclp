@@ -431,20 +431,21 @@ proc tclp::run_pkg_cmds {pkg_name pkg_configs pkg_dir dest} {
     set tm_file [get $build_info tm file]
     set tm_dir [get $build_info tm dir]
     set url [get $build_info url]
+    #set pkg_name [get $build_info name]
 
     if {$url != ""} {
-	# build wrap here
+    	# build wrap here
 
-	set result [download_pkg_from_git $url $dest]
+    	set result [download_pkg_from_git $url $dest]
 
-	if {$result == ""} {
-	    return ""
-	}
-	
-	set pkg [dict get $result pkg]
-	#set pkg_deps [dict get $result deps]
-	#set pkg_name [dict get $pkg pkg_name]
-	set pkg_dir [dict get $pkg pkg_dir]
+    	if {$result == ""} {
+    	    return ""
+    	}
+    	
+    	set pkg [dict get $result pkg]
+    	#set pkg_deps [dict get $result deps]
+    	#set pkg_name [dict get $pkg pkg_name]
+    	set pkg_dir [dict get $pkg pkg_dir]
     }
 
     if {[llength $cmds] > 0} {
@@ -452,22 +453,24 @@ proc tclp::run_pkg_cmds {pkg_name pkg_configs pkg_dir dest} {
 	foreach cmd $cmds { 
 	    debug "run $cmd"
 	    set cmd [list sh -c "cd $pkg_dir && $cmd"]
-	    set execution [catch {exec {*}$cmd} result]
-	    if { $execution != 0} {
-		puts $result
-		return -code error "can't run cmd $cmd"
-	    }
+	    set execution [catch {exec {*}$cmd} result options]
+        if {[dict get $options -errorcode] ne "NONE"} {
+    		puts $result
+    		return -code error "can't run cmd $cmd"
+        }
 	}
 
 	if {$libdir != ""} {
 	    lappend results [dict create \
-				 pkg_dir $libdir \
-				 pkg_name $pkg_name]
-	    set pgk_dest $dest/$pgk_name
+				            pkg_dir $libdir \
+				            pkg_name $pkg_name]
+	    set pkg_dest $dest/pkgs/$pkg_name
 	    if {[file exists $pkg_dest]} {
-		file delete -force $pkg_dest
+		  file delete -force $pkg_dest
 	    }
-	    file rename $pkg_dir $pkg_dest
+        
+	    file rename $pkg_dir/$libdir $pkg_dest
+        
 	} elseif {$tm_file != ""} {
 	    set tm_name [lindex [split $tm_file /] end]
 	    set tm_dest $dest/pkgs/$tm_dir
@@ -531,11 +534,11 @@ proc tclp::build_pkg_dep {pkg_configs dep dest} {
     foreach cmd $cmds { 
 	debug "run $cmd"
 	set cmd [list sh -c "cd $pkg_dir && $cmd"]
-	set execution [catch {exec {*}$cmd} result]
-	if { $execution != 0} {
+	set execution [catch {exec {*}$cmd} result options]
+    if {[dict get $options -errorcode] ne "NONE"} {
 	    puts $result
-	    return -code error "can't run cmd $cmd"
-	}
+	    return -code error "can't run cmd $cmd"        
+    }
     }
 
     if {$tm_file != ""} {
@@ -609,9 +612,10 @@ proc tclp::download_pkg_from_git {url dest} {
         set pname [get $pkg_configs app name]
 
 	# change folder name if package name != url folder name
-        if {$pname != $pkg_name} {
+        puts "::> $pname, $pkg_name"
+        if {"$pname" != "$pkg_name"} {
             set pkg_name $pname
-            set new_pkg_dir [join [lrange [split $pkg_dir /] 0 end-1] /]
+            set new_pkg_dir [file dirname $pkg_dir]
             set new_pkg_dir $new_pkg_dir/$pkg_name
 
 	    if {[file exists $new_pkg_dir]} {
@@ -630,7 +634,7 @@ proc tclp::download_pkg_from_git {url dest} {
 	    set create_pkg false
 	}
 	
-        set results [build_pkg $pkg_configs $new_pkg_dir $dest]
+        set results [build_pkg $pkg_configs $pkg_dir $dest]
     }
 
     if {$create_pkg} {
