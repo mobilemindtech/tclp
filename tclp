@@ -603,6 +603,10 @@ proc tclp::download_pkg_from_git {url dest} {
     if {[catch {git clone $url $pkg_dir} err]} {
 	return -code error "clone error: $err"
     }
+
+    if {![file exists $pkg_dir]} {
+        return -code error "can't be clone repo $url into $pkg_dir"
+    }
     
     set results {}
     set create_pkg true
