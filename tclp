@@ -187,8 +187,8 @@ proc tclp::package_install {pkg_url pkg_name} {
         set pkg_dir [get $pkg pkg_dir]
 	set pkg_tm_file_name [get $pkg tm_file_name]
 	set pkg_tm_file_path [get $pkg tm_file_path]
-	set pkg_tm_dir [get $pkg tm_dir]
-        set pkg_path $lib_path/$pkg_name
+	set pkg_tm_dir [get $pkg tm_dir]    
+    set pkg_path $lib_path/$pkg_name
 
 	if {$pkg_tm_file_path != ""} {
 	    # has tm file
@@ -209,6 +209,11 @@ proc tclp::package_install {pkg_url pkg_name} {
 	    debug "\[ok\] pkg $pkg_tm_file_name installed successfully in $pkg_tm_dest/$pkg_tm_file_name"
 	    
 	} else {
+
+        if {[file exists $pkg_path]} {
+            file delete -force $pkg_path
+        }
+
 	    file rename $pkg_dir $pkg_path
 	    debug "\[ok\] pkg $pkg_dir installed successfully in $pkg_path"
 	}
@@ -580,7 +585,7 @@ proc tclp::build_pkg_dep {pkg_configs dep dest} {
 #
 proc tclp::get_url_pkg_name {url} {
     set dirname [lindex [split $url /] end]
-    lindex [split $dirname .] end-1    
+    lindex [split $dirname .] 0
 }
 
 #
@@ -594,6 +599,7 @@ proc tclp::download_pkg_from_git {url dest} {
     # url folder name
     set pkg_name [get_url_pkg_name $url]
     set pkg_dir $dest/$pkg_name
+    
     
     if {[file exists $pkg_dir]} {
 	debug "pkg $pkg_name already downloaded"
@@ -616,16 +622,15 @@ proc tclp::download_pkg_from_git {url dest} {
         set pname [get $pkg_configs app name]
 
 	# change folder name if package name != url folder name
-        puts "::> $pname, $pkg_name"
+        #puts "::> $pname, $pkg_name"
         if {"$pname" != "$pkg_name"} {
             set pkg_name $pname
             set new_pkg_dir [file dirname $pkg_dir]
             set new_pkg_dir $new_pkg_dir/$pkg_name
 
 	    if {[file exists $new_pkg_dir]} {
-		debug "pkg $pkg_name already downloaded"
-		file delete -force $pkg_dir
-		return ""
+		  debug "pkg $pkg_name already exists"
+		  file delete -force $pkg_dir		
 	    }
 	    
             file rename $pkg_dir $new_pkg_dir
